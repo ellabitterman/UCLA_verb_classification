@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
-# checking git!!!!!!
+# checking git!!!!!! !!!!!!nfodahcslfu
 
 def read_video(video_path):
     """ Given a path to a video file, return a numpy array of all readable frames in video."""
