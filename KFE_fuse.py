@@ -24,6 +24,7 @@ import torch
 import time
 
 
+
 def normalize(lst):
     """ Given a list of numerical values, return the normalized list."""
     to_norm = np.array(lst)
@@ -94,6 +95,7 @@ def too_few_frames_extract(current_n_frames, fused_data, target_n_frames):
     final_lst = [key for key, val in dct.items() if val in frames_to_duplicate]
     return final_lst
 
+
 def extract_keyframes_per_segment(fused_data, vid_name, n_keyframes=16):
     """
     Extract exactly n_keyframes by dividing video into segments
@@ -130,6 +132,7 @@ def extract_keyframes_per_segment(fused_data, vid_name, n_keyframes=16):
         keyframe_indices.append(global_idx)
 
     return keyframe_indices
+
 
 def extract_keyframes_from_peaks(fused_data, peaks_dict, vid_name, n_keyframes=16):
     """
@@ -181,6 +184,7 @@ def extract_keyframes_from_peaks(fused_data, peaks_dict, vid_name, n_keyframes=1
 
     return selected_frames
 
+
 def read_video(video_path):
     cap = cv2.VideoCapture(video_path)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -201,11 +205,8 @@ def read_video(video_path):
     cap.release()
     return frames[:ind]
 
+
 def extract_frames(video_path, kf_lst, fused_data, resize=(224, 224), target_frames=16):
-
-    print("path", video_path)
-
-
 
     # Read all frames once using the optimized function
     all_frames = read_video(video_path)
@@ -243,19 +244,17 @@ def extract_frames(video_path, kf_lst, fused_data, resize=(224, 224), target_fra
                 dup_frames.append(frame.copy())
         frames = dup_frames
 
-    # Convert list to numpy array
-    #frames = np.array(frames)
-
-    print(f"frames data type: {type(frames)}")
+    # frames = np.array(frames) # Convert list to numpy array
 
     return frames
+
 
 
 def main():
     # Set up directories
     current_dir = os.getcwd()
     json_path = os.path.join(current_dir, "verb_classes", "jsons")
-    video_dir = "all_videos"
+    video_dir = "../all_videos"
     embedding_dir = os.path.join(current_dir, "verb_classes", "embeddings")
     os.makedirs(embedding_dir, exist_ok=True)
 
@@ -306,11 +305,15 @@ def main():
         keyframe_peak_dct[vid_name] = keyframes_peaks
 
 
-    ### Code below uses same framework/methods as extractVideoEmbedding.py
+
+    # 1. VideoMAE method -> same framework as extractVideoEmbedding.py
+    # Create videomae directory inside embeddings directory
+    videomae_dir = os.path.join(embedding_dir, "VideoMAE_embs")
+    os.makedirs(videomae_dir, exist_ok=True)
 
     # Load VideoMAE processor and model
-    video_processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
-    video_model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base")
+    videomae_processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
+    videomae_model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base")
 
     for video_file in video_files:
         video_name = os.path.splitext(video_file)[0]
@@ -321,27 +324,27 @@ def main():
                                 resize=(224, 224), target_frames=16)
 
         # Preprocess and generate embedding
-        inputs = video_processor(frames, return_tensors="pt")
+        inputs = videomae_processor(frames, return_tensors="pt")
 
         # Start timer, run VideoMAEModel, then end timer
         start_time = time.time()
         with torch.no_grad():
-           outputs = video_model(**inputs)
+           outputs = videomae_model(**inputs)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"Embedding generation time: {elapsed_time:.2f} seconds")
+        print(f"VideoMAE embedding generation time: {elapsed_time:.2f} seconds")
 
         # Get video representation vector
-        video_emb = outputs.last_hidden_state[:, 0]
+        videomae_emb = outputs.last_hidden_state[:, 0]
 
         # Save embeddings to jsons -> one json per video
-        emb_path = os.path.join(embedding_dir, f"{video_name}_embedding.json")
-        emb_data = video_emb.cpu().numpy().tolist()
-        with open(emb_path, 'w', encoding='utf-8') as f:
-            json.dump({"embedding": emb_data}, f, ensure_ascii=False, indent=2)
-        print(f"Embedding saved as json to: {emb_path}")
+        videomae_emb_path = os.path.join(videomae_dir, f"{video_name}_VideoMAE_emb.json")
+        videomae_emb_data = videomae_emb.cpu().numpy().tolist()
+        with open(videomae_emb_path, 'w', encoding='utf-8') as f:
+            json.dump({"embedding": videomae_emb_data}, f, ensure_ascii=False, indent=2)
+        print(f"Embedding saved as json to: {videomae_emb_path}")
 
-    print("All videos processed!")
+    print("All videos processed with VideoMAE Model!")
 
 
 if __name__ == "__main__":
