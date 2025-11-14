@@ -32,7 +32,6 @@ def normalize(lst):
 
     return normalized[0].tolist()
 
-
 def fuse_curves(vid, current_dir, save_pngs=False, motion_weight=3):
     """ Fuse all attention curves PER VIDEO into one PER VIDEO. Motion_weight is set to 3,
     meaning motion is weighted 3x more than color in creating the final curve.
@@ -66,12 +65,10 @@ def fuse_curves(vid, current_dir, save_pngs=False, motion_weight=3):
 
     return fused
 
-
 def identify_peaks(data):
     """ Identify all local maxima for each fused curve """
     df = pd.DataFrame(data, columns=['value'])
     return df.iloc[s.argrelmax(np.array(data), order=1)[0]]
-
 
 def too_few_frames_extract(current_n_frames, fused_data, target_n_frames):
     """ Given a video with less than the target number of frames, find frames with highest fused attention scores
@@ -94,7 +91,6 @@ def too_few_frames_extract(current_n_frames, fused_data, target_n_frames):
 
     final_lst = [key for key, val in dct.items() if val in frames_to_duplicate]
     return final_lst
-
 
 def extract_keyframes_per_segment(fused_data, vid_name, n_keyframes=16):
     """
@@ -132,7 +128,6 @@ def extract_keyframes_per_segment(fused_data, vid_name, n_keyframes=16):
         keyframe_indices.append(global_idx)
 
     return keyframe_indices
-
 
 def extract_keyframes_from_peaks(fused_data, peaks_dict, vid_name, n_keyframes=16):
     """
@@ -184,7 +179,6 @@ def extract_keyframes_from_peaks(fused_data, peaks_dict, vid_name, n_keyframes=1
 
     return selected_frames
 
-
 def read_video(video_path):
     cap = cv2.VideoCapture(video_path)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -204,7 +198,6 @@ def read_video(video_path):
 
     cap.release()
     return frames[:ind]
-
 
 def extract_frames(video_path, kf_lst, fused_data, resize=(224, 224), target_frames=16):
 
@@ -247,6 +240,48 @@ def extract_frames(video_path, kf_lst, fused_data, resize=(224, 224), target_fra
     # frames = np.array(frames) # Convert list to numpy array
 
     return frames
+
+
+# Different methods for embedding extraction
+def vidmae(emb_dir, video_dir, video_files, keyframe_dct, fuse_dct):
+
+    # Create videomae directory inside embeddings directory
+    videomae_dir = os.path.join(emb_dir, "VideoMAE_embs")
+    os.makedirs(videomae_dir, exist_ok=True)
+
+    # Load VideoMAE processor and model
+    videomae_processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
+    videomae_model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base")
+
+    for video_file in video_files:
+        video_name = os.path.splitext(video_file)[0]
+        video_path = os.path.join(video_dir, video_file)
+
+        # Change which keyframe dictionary depending on method chosen !!!!
+        frames = extract_frames(video_path, keyframe_dct[video_name], fuse_dct[video_name],
+                                resize=(224, 224), target_frames=16)
+
+        # Preprocess and generate embedding
+        inputs = videomae_processor(frames, return_tensors="pt")
+
+        # Run VideoMAEModel
+        with torch.no_grad():
+           outputs = videomae_model(**inputs)
+
+        # Get video representation vector
+        videomae_emb = outputs.last_hidden_state[:, 0]
+
+        # Save embeddings to jsons -> one json per video
+        videomae_emb_path = os.path.join(videomae_dir, f"{video_name}_VideoMAE_emb.json")
+        videomae_emb_data = videomae_emb.cpu().numpy().tolist()
+        with open(videomae_emb_path, 'w', encoding='utf-8') as f:
+            json.dump({"embedding": videomae_emb_data}, f, ensure_ascii=False, indent=2)
+        print(f"{video_name} embedding saved as json to VideoMAE_embs")
+
+    print("All videos processed with VideoMAE Model!")
+
+
+
 
 
 
@@ -304,47 +339,9 @@ def main():
         keyframes_peaks = extract_keyframes_from_peaks(fuse_dct[vid_name], peak_dct[vid_name], vid_name, n_keyframes=16)
         keyframe_peak_dct[vid_name] = keyframes_peaks
 
-
-
     # 1. VideoMAE method -> same framework as extractVideoEmbedding.py
-    # Create videomae directory inside embeddings directory
-    videomae_dir = os.path.join(embedding_dir, "VideoMAE_embs")
-    os.makedirs(videomae_dir, exist_ok=True)
+    vidmae(embedding_dir, video_dir, video_files, keyframe_peak_dct, fuse_dct)
 
-    # Load VideoMAE processor and model
-    videomae_processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base")
-    videomae_model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base")
-
-    for video_file in video_files:
-        video_name = os.path.splitext(video_file)[0]
-        video_path = os.path.join(video_dir, video_file)
-
-        # Change which keyframe dictionary depending on method chosen !!!!
-        frames = extract_frames(video_path, keyframe_peak_dct[video_name], fuse_dct[video_name],
-                                resize=(224, 224), target_frames=16)
-
-        # Preprocess and generate embedding
-        inputs = videomae_processor(frames, return_tensors="pt")
-
-        # Start timer, run VideoMAEModel, then end timer
-        start_time = time.time()
-        with torch.no_grad():
-           outputs = videomae_model(**inputs)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print(f"VideoMAE embedding generation time: {elapsed_time:.2f} seconds")
-
-        # Get video representation vector
-        videomae_emb = outputs.last_hidden_state[:, 0]
-
-        # Save embeddings to jsons -> one json per video
-        videomae_emb_path = os.path.join(videomae_dir, f"{video_name}_VideoMAE_emb.json")
-        videomae_emb_data = videomae_emb.cpu().numpy().tolist()
-        with open(videomae_emb_path, 'w', encoding='utf-8') as f:
-            json.dump({"embedding": videomae_emb_data}, f, ensure_ascii=False, indent=2)
-        print(f"Embedding saved as json to: {videomae_emb_path}")
-
-    print("All videos processed with VideoMAE Model!")
 
 
 if __name__ == "__main__":
